@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Price Color Mapper Demo</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+
+    h1,
+    h2 {
+      color: #333;
+    }
+
+    .demo-section {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .price-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .price-card {
+      padding: 16px;
+      border-radius: 8px;
+      text-align: center;
+      color: white;
+      font-weight: 600;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+      transition: transform 0.2s;
+    }
+
+    .price-card:hover {
+      transform: scale(1.05);
+    }
+
+    .price-value {
+      font-size: 18px;
+      margin-bottom: 4px;
+    }
+
+    .price-meta {
+      font-size: 11px;
+      opacity: 0.9;
+    }
+
+    .gradient-bar {
+      height: 40px;
+      border-radius: 8px;
+      margin-top: 16px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    label {
+      font-size: 12px;
+      color: #666;
+    }
+
+    input,
+    select {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    button {
+      background: #4a90d9;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    button:hover {
+      background: #357abd;
+    }
+
+    /* Переключатель алгоритма */
+    .header-row {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+
+    .header-row h1 {
+      margin: 0;
+    }
+
+    .algo-switcher {
+      display: flex;
+      background: #e0e0e0;
+      border-radius: 6px;
+      padding: 3px;
+    }
+
+    .algo-switcher a {
+      padding: 6px 14px;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 500;
+      text-decoration: none;
+      color: #666;
+      transition: all 0.2s;
+    }
+
+    .algo-switcher a:hover {
+      color: #333;
+    }
+
+    .algo-switcher a.active {
+      background: #4a90d9;
+      color: white;
+    }
+
+    .color-spectrum {
+      display: flex;
+      height: 60px;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-top: 16px;
+    }
+
+    .spectrum-segment {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 11px;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Стили для превью схемы зала */
+    .hall-preview-container {
+      margin-top: 16px;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fafafa;
+    }
+
+    #hallPreview {
+      width: 100%;
+      height: 500px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 16px;
+    }
+
+    #hallPreview svg {
+      max-width: 100%;
+      max-height: 100%;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="header-row">
+    <h1>Price Color Mapper</h1>
+    <div class="algo-switcher">
+      <a href="/d3-scale-update/" class="active">d3-scale</a>
+      <a href="/cdf-update/">cdf</a>
+    </div>
+  </div>
+  <p>Алгоритм на основе d3-scale квантилизации цен на цвета с интерполяцией</p>
+
+  <div class="demo-section">
+    <h2>Градиент цен</h2>
+    <p>От дешёвого (синий) к дорогому (красный)</p>
+    <div id="spectrum" class="color-spectrum"></div>
+  </div>
+
+  <div class="demo-section">
+    <h2>Интерактивная демонстрация</h2>
+    <div class="controls">
+      <div class="control-group">
+        <label>Пресет:</label>
+        <select id="preset">
+          <option value="default">Стандартный</option>
+          <option value="concerts">Концерты</option>
+          <option value="theater">Театр</option>
+          <option value="festivals">Фестивали</option>
+          <option value="random">Случайные цены</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label>Добавить цену:</label>
+        <input type="number" id="customPrice" placeholder="Введите цену">
+      </div>
+      <button onclick="addCustomPrice()">Добавить</button>
+      <button onclick="clearPrices()">Очистить</button>
+    </div>
+    <div id="pricesGrid" class="price-grid"></div>
+  </div>
+
+  <div class="demo-section">
+    <h2>Превью схемы зала</h2>
+    <p>Распределение цветов по местам: дорогие (красный) ближе к сцене, дешёвые (синий) — дальше</p>
+    <div class="controls">
+      <div class="control-group">
+        <label>Схема зала:</label>
+        <select id="hallSelect">
+          <option value="../halls/small-optimized.svg">Маленькая</option>
+          <option value="../halls/medium-optimized.svg" selected>Средняя</option>
+          <option value="../halls/large-optimized.svg">Большая</option>
+        </select>
+      </div>
+    </div>
+    <div class="hall-preview-container">
+      <div id="hallPreview"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>

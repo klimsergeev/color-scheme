@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Price Color Mapper Demo</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+
+    h1,
+    h2 {
+      color: #333;
+    }
+
+    .demo-section {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .price-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .price-card {
+      padding: 16px;
+      border-radius: 8px;
+      text-align: center;
+      color: white;
+      font-weight: 600;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+      transition: transform 0.2s;
+    }
+
+    .price-card:hover {
+      transform: scale(1.05);
+    }
+
+    .price-value {
+      font-size: 18px;
+      margin-bottom: 4px;
+    }
+
+    .price-meta {
+      font-size: 11px;
+      opacity: 0.9;
+    }
+
+    .gradient-bar {
+      height: 40px;
+      border-radius: 8px;
+      margin-top: 16px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    label {
+      font-size: 12px;
+      color: #666;
+    }
+
+    input,
+    select {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    button {
+      background: #4a90d9;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    button:hover {
+      background: #357abd;
+    }
+
+    .color-spectrum {
+      display: flex;
+      height: 60px;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-top: 16px;
+    }
+
+    .spectrum-segment {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 11px;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+  </style>
+</head>
+
+<body>
+  <h1>🎨 Price Color Mapper</h1>
+  <p>Алгоритм кумулятивной функции распределения для маппинга цен на цвета с интерполяцией</p>
+
+  <div class="demo-section">
+    <h2>Градиент цен</h2>
+    <p>От дешёвого (синий) к дорогому (красный)</p>
+    <div id="spectrum" class="color-spectrum"></div>
+  </div>
+
+  <div class="demo-section">
+    <h2>Интерактивная демонстрация</h2>
+    <div class="controls">
+      <div class="control-group">
+        <label>Пресет:</label>
+        <select id="preset">
+          <option value="default">Стандартный</option>
+          <option value="concerts">Концерты</option>
+          <option value="theater">Театр</option>
+          <option value="festivals">Фестивали</option>
+          <option value="random">Случайные цены</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label>Добавить цену:</label>
+        <input type="number" id="customPrice" placeholder="Введите цену">
+      </div>
+      <button onclick="addCustomPrice()">Добавить</button>
+      <button onclick="clearPrices()">Очистить</button>
+    </div>
+    <div id="pricesGrid" class="price-grid"></div>
+  </div>
+
+  <div class="demo-section">
+    <h2>Тест: одна цена 100 000</h2>
+    <p>Одна цена не должна быть синей, если она объективно не дешёвая</p>
+    <div id="singlePrice" class="price-grid"></div>
+  </div>
+
+  <div class="demo-section">
+    <h2>Тест: две цены</h2>
+    <div id="twoPrices" class="price-grid"></div>
+  </div>
+
+  <script type="module">
+    // Встроенная версия алгоритма для демонстрации
+    const DEFAULT_THRESHOLDS = {
+      veryLow: 500,      // до 500₽ - очень дёшево
+      low: 1500,         // до 1500₽ - дёшево  
+      medium: 3500,      // до 3500₽ - средне
+      high: 7000,        // до 7000₽ - дорого
+      veryHigh: 15000,   // 15000₽+ - очень дорого
+    };
+
+    // Алгоритм маппинга цен на цвета с интерполяцией на основе нормального распределения (CDF + абсолютные пороги, кумулятивная функция распределения) апроксимирует распределение цен и позволяет более гибко отображать широкий диапазон цен, сохраняя при этом интуитивную цветовую градацию от дешёвого к дорогому. Он адаптируется к различным наборам данных, обеспечивая более информативную визуализацию цен.
+    class PriceColorMapper {
+      constructor(options = {}) {
+        this.options = {
+          absoluteThresholds: options.absoluteThresholds ?? DEFAULT_THRESHOLDS,
+          useLogScale: options.useLogScale ?? true,
+          minPricesForStats: options.minPricesForStats ?? 5,
+        };
+      }
+
+      mapPricesToColors(prices) {
+        if (prices.length === 0) return [];
+
+        const transformedPrices = this.options.useLogScale
+          ? prices.map(p => Math.log1p(p))
+          : prices;
+
+        const stats = this.calculateStatistics(transformedPrices);
+        const normalizedValues = this.normalizeWithDistribution(
+          transformedPrices, prices, stats
+        );
+
+        return prices.map((price, i) => {
+          const normalized = normalizedValues[i];
+          const hsl = this.valueToHSL(normalized);
+          const rgb = this.hslToRgb(hsl);
+
+          return {
+            price,
+            color: this.rgbToHex(rgb),
+            colorRGB: rgb,
+            colorHSL: hsl,
+            normalizedValue: normalized,
+            percentile: this.calculatePercentile(transformedPrices[i], transformedPrices),
+          };
+        });
+      }
+
+      calculateStatistics(values) {
+        const n = values.length;
+        const mean = values.reduce((a, b) => a + b, 0) / n;
+        const variance = values.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / n;
+        const stdDev = Math.sqrt(variance);
+        const sorted = [...values].sort((a, b) => a - b);
+
+        return {
+          mean, stdDev,
+          min: sorted[0],
+          max: sorted[n - 1],
+          median: n % 2 === 0 ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2 : sorted[Math.floor(n / 2)],
+          q1: sorted[Math.floor(n * 0.25)],
+          q3: sorted[Math.floor(n * 0.75)],
+          iqr: sorted[Math.floor(n * 0.75)] - sorted[Math.floor(n * 0.25)],
+          n
+        };
+      }
+
+      normalizeWithDistribution(transformedPrices, originalPrices, stats) {
+        if (stats.n < this.options.minPricesForStats) {
+          return originalPrices.map(price => this.normalizeByAbsoluteThresholds(price));
+        }
+
+        return transformedPrices.map((transformed, i) => {
+          const original = originalPrices[i];
+          const zScore = stats.stdDev > 0 ? (transformed - stats.mean) / stats.stdDev : 0;
+          const relativeProbability = this.normalCDF(zScore);
+          const absolutePosition = this.normalizeByAbsoluteThresholds(original);
+          const absoluteWeight = Math.max(0.2, 1 - (stats.n - this.options.minPricesForStats) / 20);
+          const combined = relativeProbability * (1 - absoluteWeight) + absolutePosition * absoluteWeight;
+          return Math.max(0, Math.min(1, combined));
+        });
+      }
+
+      normalizeByAbsoluteThresholds(price) {
+        const t = this.options.absoluteThresholds;
+        const thresholdPoints = [
+          { price: 0, value: 0 },
+          { price: t.veryLow, value: 0.1 },
+          { price: t.low, value: 0.25 },
+          { price: t.medium, value: 0.5 },
+          { price: t.high, value: 0.75 },
+          { price: t.veryHigh, value: 0.9 },
+        ];
+
+        for (let i = 0; i < thresholdPoints.length - 1; i++) {
+          const curr = thresholdPoints[i];
+          const next = thresholdPoints[i + 1];
+          if (price <= next.price) {
+            const t = (price - curr.price) / (next.price - curr.price);
+            const smooth = t * t * (3 - 2 * t);
+            return curr.value + (next.value - curr.value) * smooth;
+          }
+        }
+        const excess = price / t.veryHigh;
+        return 0.9 + 0.1 * (1 - 1 / excess);
+      }
+
+      normalCDF(z) {
+        const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+        const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+        const sign = z < 0 ? -1 : 1;
+        z = Math.abs(z) / Math.sqrt(2);
+        const t = 1.0 / (1.0 + p * z);
+        const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-z * z);
+        return 0.5 * (1.0 + sign * y);
+      }
+
+      valueToHSL(value) {
+        const hue = this.interpolateHue(value);
+        const saturationBase = 45;
+        const saturationBoost = 25 * Math.pow(Math.abs(value - 0.5) * 2, 0.7);
+        const saturation = saturationBase + saturationBoost;
+        const lightness = 53 - 5 * Math.pow(Math.abs(value - 0.5) * 2, 0.5);
+        return { h: hue, s: saturation, l: lightness };
+      }
+
+      interpolateHue(t) {
+        // Путь через спектр: синий (220) -> голубой (180) -> зелёный (120) -> жёлтый (60) -> оранжевый (30) -> красный (0)
+        // Используем кривую Безье для более приятного перехода
+
+        if (t <= 0) return 230;
+        if (t >= 1) return 0;
+
+        // Ключевые точки для интерполяции
+        const hueStops = [
+          { t: 0, h: 220 },     // Синий
+          { t: 0.1, h: 205 },   // Синий чуть теплее
+          { t: 0.2, h: 190 },   // Голубой
+          { t: 0.28, h: 170 },  // Голубо-бирюзовый
+          { t: 0.35, h: 150 },  // Бирюзовый
+          { t: 0.42, h: 120 },  // Зелёный
+          { t: 0.5, h: 90 },    // Жёлто-зелёный
+          { t: 0.58, h: 70 },   // Салатовый
+          { t: 0.65, h: 55 },   // Жёлтый
+          { t: 0.72, h: 45 },   // Жёлто-оранжевый
+          { t: 0.8, h: 35 },    // Оранжевый
+          { t: 0.9, h: 20 },    // Красно-оранжевый
+          { t: 1, h: 5 },       // Красный
+        ];
+
+        // Находим интервал и интерполируем
+        for (let i = 0; i < hueStops.length - 1; i++) {
+          if (t <= hueStops[i + 1].t) {
+            const curr = hueStops[i];
+            const next = hueStops[i + 1];
+            const localT = (t - curr.t) / (next.t - curr.t);
+            // Smoothstep для плавного перехода
+            const smooth = localT * localT * (3 - 2 * localT);
+            return curr.h + (next.h - curr.h) * smooth;
+          }
+        }
+
+        return 0;
+      }
+
+      calculatePercentile(value, allValues) {
+        const sorted = [...allValues].sort((a, b) => a - b);
+        const index = sorted.findIndex(v => v >= value);
+        return index >= 0 ? (index / (sorted.length - 1 || 1)) * 100 : 100;
+      }
+
+      hslToRgb(hsl) {
+        const h = hsl.h / 360, s = hsl.s / 100, l = hsl.l / 100;
+        let r, g, b;
+        if (s === 0) { r = g = b = l; }
+        else {
+          const hue2rgb = (p, q, t) => {
+            if (t < 0) t += 1; if (t > 1) t -= 1;
+            if (t < 1 / 6) return p + (q - p) * 6 * t;
+            if (t < 1 / 2) return q;
+            if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+            return p;
+          };
+          const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+          const p = 2 * l - q;
+          r = hue2rgb(p, q, h + 1 / 3);
+          g = hue2rgb(p, q, h);
+          b = hue2rgb(p, q, h - 1 / 3);
+        }
+        return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
+      }
+
+      rgbToHex(rgb) {
+        const toHex = c => c.toString(16).padStart(2, '0');
+        return `#${toHex(rgb.r)}${toHex(rgb.g)}${toHex(rgb.b)}`;
+      }
+    }
+
+    // Глобальные переменные
+    let currentPrices = [];
+    let mapper = new PriceColorMapper();
+
+    const presets = {
+      default: [300, 500, 800, 1200, 1800, 2500, 3500, 5000, 7000, 10000, 15000, 20000],
+      concerts: [1500, 2500, 3500, 5000, 7500, 10000, 15000, 25000],
+      theater: [500, 800, 1200, 2000, 3000, 5000, 8000],
+      festivals: [2000, 3500, 5000, 7000, 10000, 15000, 25000, 35000],
+      random: Array.from({ length: 15 }, () => Math.floor(Math.random() * 15000) + 300)
+    };
+
+    function renderPrices(containerId, prices) {
+      const container = document.getElementById(containerId);
+      const results = mapper.mapPricesToColors(prices);
+
+      container.innerHTML = results.map(r => `
+        <div class="price-card" style="background-color: ${r.color}">
+          <div class="price-value">${r.price.toLocaleString('ru-RU')} ₽</div>
+          <div class="price-meta">
+            ${r.color}<br>
+            norm: ${r.normalizedValue.toFixed(2)}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderSpectrum() {
+      const container = document.getElementById('spectrum');
+      const steps = 20;
+      const prices = Array.from({ length: steps }, (_, i) => 100 + i * 25000);
+      const results = mapper.mapPricesToColors(prices);
+      console.log(prices)
+
+      container.innerHTML = results.map(r => `
+        <div class="spectrum-segment" style="background-color: ${r.color}">
+          ${(r.price / 1000).toFixed(0)}k
+        </div>
+      `).join('');
+    }
+
+    window.addCustomPrice = function () {
+      const input = document.getElementById('customPrice');
+      const price = parseFloat(input.value);
+      if (!isNaN(price) && price > 0) {
+        currentPrices.push(price);
+        currentPrices.sort((a, b) => a - b);
+        renderPrices('pricesGrid', currentPrices);
+        input.value = '';
+      }
+    };
+
+    window.clearPrices = function () {
+      currentPrices = [];
+      document.getElementById('pricesGrid').innerHTML = '';
+    };
+
+    document.getElementById('preset').addEventListener('change', (e) => {
+      currentPrices = [...presets[e.target.value]].sort((a, b) => a - b);
+      renderPrices('pricesGrid', currentPrices);
+    });
+
+    // Инициализация
+    currentPrices = [...presets.default];
+    renderSpectrum();
+    renderPrices('pricesGrid', currentPrices);
+    renderPrices('singlePrice', [100000]);
+    renderPrices('twoPrices', [30000, 150000]);
+  </script>
+</body>
+
+</html>
